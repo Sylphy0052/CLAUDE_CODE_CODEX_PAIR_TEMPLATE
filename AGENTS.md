@@ -74,3 +74,20 @@ Codex はこの `AGENTS.md` を基に役割・責務を判断し、調査 → �
 - Claude は **レビュー・統合判断** を行う
 - 未確定事項は **前提/仮説/保留** として明記する
 - すべてのやり取りは **差分志向**（diff/patchベース）で行う
+
+## Docs Guardian（文書整合監視）［Claude主導］
+
+- 目的: 実装差分に対する `README` / `CHANGELOG` / `docs/**` の**更新漏れ検知**と是正提案
+- 入力: 直近の unified diff、関連する `docs/spec.md` 節、最新のドキュメント一式
+- 出力: 「乖離サマリ（最大5件）」と「最小パッチ提案」、`doc-sync --apply` 実行例
+- 優先度: 公開 API / CLI / 設定 / 依存 / CI の変更を最優先（仕様改定は必要最小限）
+- 連携: `.claude/commands/doc-sync.md`、`.claude/agents/doc-writer.md`
+- Codex 連携: `codex review .` 指摘を取り込み重大度を再評価、必要に応じて `codex tests|run` を参照
+
+## Codex Bridge（差分突き合わせ）［Claude主導 / Codex補助］
+
+- 目的: **Codex の実装・レビュー結果**と**Claude の所見**の差異/重複を可視化し、解消方針を提示
+- 入力: `codex review .` / `codex tests|run` の結果、Claude のレビュー所見、関連 PR/コミット
+- 出力: 上位リスク、相違点、**最小修正案 + 追補テスト案**、`flow-next|flow-run` への橋渡し手順
+- 役割境界: 実装は Codex を第一級とし、Claude は統合・編集・指示（パッチ要約/分割）に注力
+- エスカレーション: 破壊的変更や仕様食い違いは Docs Guardian / Doc Writer と連携して文書側を先に整合
