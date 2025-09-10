@@ -11,198 +11,133 @@ Claude CodeとCodex CLIを併用したTDD開発テンプレートプロジェク
 - **TDD徹底**: すべての機能はテストファーストで開発
 - **相互レビュー**: Claude CodeとCodex CLIによる双方向レビュー
 - **パッチベース開発**: 全変更を差分提案→承認→適用で管理
-- **自動化**: テスト、Lint、型チェックの自動実行
 
 ## プロジェクト構造
 
-```
+```text
 .
 ├── .claude/           # Claude Code設定
 ├── .codex/            # Codex CLI設定
-├── docs/              # ドキュメント
+├── docs/              # プロジェクト仕様書
+│   └── spec.md        # メイン仕様書
 ├── AGENTS.md          # エージェント定義
 ├── CLAUDE.md          # Claude Code運用規約
-└── HOW_TO_USE.md      # 使用方法ガイド
+├── HOW_TO_USE.md      # 使用方法ガイド
+└── README.md          # このファイル
 ```
 
 ## セットアップ
 
-```bash
-# Poetry環境のセットアップ
-poetry install --no-root
+### 環境要件
 
-# 開発環境の初期化
-poetry run python main.py
-```
-
-## 開発ワークフロー
-
-1. **flow-init**: 目標読込・タスク分解・Redテスト計画
-2. **tests-red**: 失敗テストを追加
-3. **tests-green**: 最小実装で成功させる
-4. **tests-refactor**: 外部挙動を変えず整理
-5. **reviewer/codex-review**: 相互レビュー
-6. **flow-next**: 次タスクへ継続
-
-## コマンド
-
-### テスト実行
-
-```bash
-poetry run pytest
-```
-
-### コード品質チェック
-
-```bash
-# Lintチェック
-poetry run flake8 --max-line-length=120 --ignore=E203,E231,E402,W503,W605 .
-
-# 型チェック
-poetry run mypy --strict .
-```
-
-## 要件
-
-- Python 3.11.6+
-- Poetry
 - Claude Code CLI
 - Codex CLI
 
-## ライセンス
+## 開発ワークフロー
 
-このプロジェクトはテンプレートとして提供されています。
+### 基本TDDサイクル
 
-## 仕様書ベースの実装フロー
+このプロジェクトでは以下のTDDワークフローを推奨しています：
 
-spec.md（`docs/spec.md`）に基づいて実装を進める際の標準フローです。
+1. **Red**: 失敗テストを作成
+2. **Green**: 最小実装でテストを通す
+3. **Refactor**: 外部挙動を変えずコードを整理
+4. **Review**: 相互レビューで品質向上
+5. **Next**: 次のタスクへ継続
 
-### 1. 実装開始前の準備
+### 詳細な内部フロー
 
-```bash
-# spec.mdの内容を確認
-cat docs/spec.md
+#### 開発フェーズ
 
-# 実装タスクをspec.mdから抽出
-/flow-init --spec docs/spec.md
-```
+1. **flow-init** - 目標読込・タスク分解・Redテスト計画
+   - 要件を小さなタスクに分解
+   - テスト計画の策定
+   - 実装範囲の明確化
 
-### 2. TDD実装サイクル
+2. **tests-red** - 失敗テストの追加
+   - 期待される動作を先にテストで定義
+   - 必ず失敗することを確認
 
-#### Phase 1: Red（失敗テスト作成）
+3. **tests-green** - 最小実装で成功させる
+   - テストが通る最小限のコードを実装
+   - 冗長性や最適化は後回し
 
-```bash
-# spec.mdの要件からテストケースを生成
-/tests-red --spec docs/spec.md --section "4. データモデル"
+4. **tests-refactor** - 外部挙動を変えず整理
+   - コードの可読性と保守性を向上
+   - テストは変更せず、実装のみ改善
 
-# 生成されたテストを確認
-poetry run pytest -xvs tests/ -k "test_models"
-```
+5. **reviewer/codex-review** - 相互レビュー
+   - Claude Code ↔ Codex CLI 双方向でレビュー
+   - 設計・境界値・セキュリティ等を検証
 
-#### Phase 2: Green（最小実装）
+6. **flow-next** - 次タスクへ継続
+   - 完了タスクの確認
+   - 次の開発サイクルへ移行
 
-```bash
-# spec.mdに準拠した最小実装を生成
-/tests-green --spec docs/spec.md
+#### パッチベース開発の考え方
 
-# テストが通ることを確認
-poetry run pytest
-```
+全ての変更は **パッチ提案→承認→適用** の手順を必須とします：
 
-#### Phase 3: Refactor（リファクタリング）
+- **最小実装原則**: テストで要求された範囲のみ実装
+- **明示的差分**: 常に unified diff で変更内容を提案
+- **可逆性保証**: ロールバック手順を含める
+- **自動化徹底**: テスト・Lint・型チェックを自動実行
 
-```bash
-# コード品質を改善（外部挙動は変更しない）
-/tests-refactor
+#### 相互レビューシステム
 
-# Lint/型チェック
-poetry run flake8 --max-line-length=120
-poetry run mypy --strict
-```
+Claude Code と Codex CLI を併用した双方向レビューにより、以下を実現：
 
-### 3. 相互レビュー
+- **多角的視点**: 異なるAIモデルによる検証
+- **品質向上**: 設計・境界値・セキュリティの多重チェック  
+- **学習効果**: 相互の提案から最適解を導出
 
-```bash
-# Claude Codeでレビュー
-/reviewer --spec docs/spec.md
+### 役割定義
 
-# Codex CLIでレビュー（WSL環境）
-/codex-review --spec docs/spec.md
+各フェーズでは以下の専門役割が機能します：
 
-# レビュー結果の比較・マージ
-/codex-bridge --compare
-```
+- **planner**: 要件を小タスク化、実装戦略の策定
+- **tdd-coach**: TDD順守の強制、テスト品質の監視
+- **reviewer**: 設計・境界値・セキュリティ等の包括レビュー
+- **scaffold**: 雛形・最小構成生成、初期セットアップ
+- **spec-writer**: 要件をPRD化、仕様書の整備
+- **doc-writer**: ドキュメント更新、API文書化
+- **codex-bridge**: Codex実行結果の要約と比較分析
 
-### 4. 実装の進捗管理
+### 出力形式と品質管理
 
-```bash
-# 現在の実装状況を確認
-/flow-status --spec docs/spec.md
+#### 標準出力形式
 
-# 次のタスクへ進む
-/flow-next
-```
+- **差分表示**: unified diff 形式
+- **変更理由**: 実装背景と影響範囲の説明
+- **ロールバック手順**: 変更取り消し方法の明記
+- **テスト結果**: pytest / codex run tests の実行結果
 
-### 5. spec.mdとの整合性チェック
+#### 品質チェック項目
 
-```bash
-# 実装がspec.mdの要件を満たしているか検証
-poetry run pytest tests/spec_compliance_test.py
+- **テストカバレッジ**: 新機能は100%カバレッジ必須
+- **型安全性**: mypy による厳格な型チェック
+- **コード品質**: flake8 によるスタイルチェック
+- **セキュリティ**: 機密情報の露出防止
+- **パフォーマンス**: 必要に応じてプロファイリング実施
 
-# ドキュメントとコードの乖離をチェック
-/doc-smith --validate docs/spec.md
-```
+### フロー制御と継続性
 
-### 実装例: MVPスコープ（spec.md Section 14）
+#### 状態管理
 
-```bash
-# 1. プロジェクト/章/QAモデルの実装
-/flow-init --spec docs/spec.md --section "4. データモデル"
-/tests-red --models Project,Outline,Chapter,QAItem
-/tests-green
-/tests-refactor
+- 各フェーズの完了状態を明確に管理
+- 前フェーズの成果物を次フェーズに確実に引き継ぎ
+- 異常終了時の復旧手順を事前定義
 
-# 2. FastAPI エンドポイントの実装
-/flow-init --spec docs/spec.md --section "5. API設計"
-/tests-red --api "POST /projects"
-/tests-green
-/codex-review
+#### 品質ゲート
 
-# 3. Codex/Claude Runner実装
-/flow-init --spec docs/spec.md --section "6. ランナー/アダプタ仕様"
-/scaffold --template runner --spec docs/spec.md
-/tests-red --adapter codex_wsl,claude_code
-/tests-green
+- 各フェーズ完了時に品質基準をクリアしていることを確認
+- 基準未達時は前フェーズに戻って修正
+- 最終的な統合テストで全体品質を保証
 
-# 4. Docker環境構築
-/scaffold --docker --spec docs/spec.md --section "13. Docker"
-```
+## 運用規約
 
-### spec.md更新時の対応
+詳細な運用規約は以下のファイルを参照してください：
 
-```bash
-# spec.mdが更新された場合
-git diff docs/spec.md
-
-# 変更箇所に対応するテストを更新
-/tests-red --spec docs/spec.md --changed
-
-# 実装を更新
-/tests-green --spec docs/spec.md --changed
-
-# ドキュメント同期
-/doc-smith --sync docs/spec.md
-```
-
-### トラブルシューティング
-
-```bash
-# spec.mdとの不整合を検出
-/spec-writer --validate
-
-# 実装とspec.mdの差分を可視化
-/reviewer --diff-spec docs/spec.md
-
-# spec.mdに基づく修正提案
-/planner --fix-compliance docs/spec.md
-```
+- `CLAUDE.md`: Claude Code運用規約とTDDワークフロー
+- `AGENTS.md`: エージェント定義
+- `HOW_TO_USE.md`: 使用方法ガイド
