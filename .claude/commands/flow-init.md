@@ -1,77 +1,73 @@
 ---
-allowed-tools: Bash(git:*), Bash(python:*), Read(*.md), Fetch(*)
-description: "初期化。CLAUDE.mdや既存アーティファクトを読み取り、目的・制約の要約、タスク分解、最初のRedテスト準備、状態ファイル作成まで自動実行します。"
+allowed-tools: Bash(git:*), Bash(codex:*), Read(*.md), Fetch(*)
+description: "初期化。docs/spec.md を読み、調査→計画→最初の Red テスト準備→state 作成までを自動実行します。Codex 連携はデフォルト。"
+updated: "2025-09-10"
 ---
 
-あなたは **初期化コマンド** です。引数が無ければ自動で情報源を探索し、TDDフロー開始に必要な最小要素を揃えます。必要なら `--goal` などで上書き指定できます。
+あなたは **初期化コマンド (flow-init)** です。引数が無ければ自動で情報源を探索し、TDD を開始できる最小セットを整えます。必要に応じて `--goal` などで上書きできます。
 
 ## デフォルト挙動（引数なし）
 
-1. **情報源の発見**（優先度順）
-   - `.claude/CLAUDE.md` の Purpose/Principles/Workflow 節
+1. **情報源の発見**
+   - `docs/spec.md`（必須・Claudeの基準）
    - `README.md` / `docs/` / `SPEC.md` / `PRD.md`
-   - 直近のIssue/ToDo（`TODO.md`/`CHANGELOG.md` など）
-2. **目的と制約の要約**
-   - 目的（Goal）、非目的（Non-Goals）、制約（技術/運用/性能/セキュリティ）を抽出
-3. **タスク分解（≤2h単位）**
-   - `@.claude/agents/planner.md` を適用し、受入基準（Given/When/Then）付きで分解
-4. **最初のRedテスト準備**
-   - `tests/` が無ければ作成、`test_<domain>_smoke.py` の叩き台を提案
-   - **失敗が保証される**最小テスト（存在しない関数/例外期待 等）
-5. **状態ファイルの生成**
-   - `.claude/flow/state.json` を作成（スキーマは後述）
-   - 初期値: `phase="red"`, `current_task=<First Task>`, `next_tasks=[...]`
-6. **安全系**
-   - 既に状態がある場合はバックアップ `.claude/flow/state.json.bak-YYYYMMDD-HHMMSS` を作成
+   - 直近の Issue/ToDo（`TODO.md` / `CHANGELOG.md` など）
 
-## 任意引数（上書き指定）
+2. **調査 (Research) — サブエージェント使用**
+   - `.claude/agents/spec-writer.md` を用い、仕様・既存コード・外部APIの現状を把握
+   - **出力**: `research_digest`（要点 / 未解決のオープンクエスチョン）
 
-- `--goal "<text>"` : 目的テキストを直接与える（CLAUDE.mdより優先）
-- `--with-scaffold` : `@scaffold` を呼び、最小ディレクトリ/テスト雛形も生成
-- `--reset` : 既存 state を破棄して再初期化（バックアップは残す）
+3. **計画 (Plan) — サブエージェント使用**
+   - `.claude/agents/planner.md` を用い、**≤2h タスク**に分解し受入基準を整備（Given/When/Then）
+   - **出力**: `plan.milestones[]`, `acceptance_criteria[]`, `risks[]`
 
-## 状態スキーマ（.claude/flow/state.json）
+4. **目的・制約の要約**
+   - 目的 (Goal) / 非目的 (Non-Goals) / 制約（技術・運用・性能・セキュリティ）を抽出
 
-```json
-{
-  "version": 1,
-  "updated_at": "2025-09-10T00:00:00Z",
-  "phase": "red", // "red" | "green" | "refactor"
-  "current_task": "短い見出し",
-  "next_tasks": ["...", "...", "..."],
-  "acceptance_criteria": ["Given ... When ... Then ..."],
-  "recent_logs": [
-    {"ts":"...", "kind":"init", "msg":"initialized by flow-init"}
-  ],
-  "stats": {"cycles": 0, "failed_cycles": 0, "total_diff_lines": 0}
-}
-```
+5. **最初の Red テスト準備**
+   - `tests/` が無ければ作成し、**失敗が保証される**最小テストの叩き台を提示
+   - テスト実行は **プロジェクト既定のテストランナー** を前提（言語非依存）
 
-## 出力形式
+6. **状態ファイルの生成**
+   - `.claude/flow/state.json` を新規作成（既存があれば `.bak-YYYYMMDD-HHMMSS` を保存）
+   - **初期値例**:
 
-```
-【目的・制約要約】
-- Goal: ...
-- Non-Goals: ...
-- Constraints: ...
+     ```json
+     {
+       "phase": "red",
+       "goal": "<短い目的>",
+       "research_digest": "<要点サマリ>",
+       "plan": {
+         "milestones": ["..."],
+         "acceptance_criteria": ["Given/When/Then ..."],
+         "risks": ["..."]
+       },
+       "current_task": "<First Task>",
+       "next_tasks": ["..."]
+     }
+     ```
 
-【タスク分解（≤2h）】
-1. ...
-2. ...
+7. **Codex 連携（デフォルト）**
+   - `codex review .` の要点を収集
+   - `codex run tests` を呼び、テスト系の初期動作を確認（存在する場合）
 
-【最初のRedテスト提案】
-- 追加先: tests/test_....py
-- テスト名: test_...
-- 失敗の根拠: 未実装/意図的失敗/例外期待
+## 任意引数
 
-【状態ファイル】
-- 作成: .claude/flow/state.json
-- 初期phase: red
-- current_task: ...
-```
+- `--goal "<text>"` : 目的テキストを直接指定（spec より優先）
+- `--spec "<file>"` : 仕様ファイルを明示指定（既定: `docs/spec.md`）
+- `--reset` : 既存 state を無視して再生成
+- `--no-codex` : Codex 呼び出しを抑止（**デフォルトは Codex 連携**）
 
-## 注意・安全
+## 出力形式（人間が読みやすい要約）
 
-- **Redテストは必ず失敗**させてください（Greenの過剰実装を防ぐため）
-- 既存stateがある場合は **強制上書きしない**（`--reset` 明示時のみ）
-- リポジトリが空/未初期化なら必要最小のGit初期化手順を提案
+【Research 要点】 …
+【Plan 要点】 …
+【受入基準 (G/W/T)】 …
+【最初の Red テスト】 ファイル名 / 目的 / 実行結果（失敗の抜粋）
+【state.json 要約】 phase / current_task / next_tasks / warnings
+
+### 注意事項
+
+- **サブエージェント（spec-writer / planner）** を必ず使用し、調査→計画を経てから Red を作成すること
+- 初期化直後は常に **Red フェーズ** から開始
+- state は人間が追える粒度で整形し、秘匿情報は含めないこと

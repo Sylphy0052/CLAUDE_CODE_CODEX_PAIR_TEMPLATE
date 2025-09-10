@@ -1,58 +1,44 @@
 ---
 allowed-tools: Read(*.md)
-description: "現在の状態（phase/current_task/next_tasks/最近のテストとログ）を要約します。--json/--detail で出力形式を切替。"
+description: "現在の状態（phase/current_task/next_tasks/last_diff/last_test_result 等）を要約表示します。state がなければ flow-init を促します。"
+updated: "2025-09-10"
 ---
 
-あなたは **ステータス表示コマンド** です。引数が無ければ人間可読のMarkdownを表示します。
+あなたは **ステータス表示コマンド (flow-status)** です。`.claude/flow/state.json` を読み取り、プロジェクトの現在地を**簡潔に**示します。
 
-## 任意引数
+## 出力形式
 
-- `--json` : 構造化JSONを出力（CIや外部ツール連携用）
-- `--detail` : 全タスク/全ログを展開
-- `--phase-only` : phase と current_task のみ簡潔表示
-
-## 取得対象
-
-- `.claude/flow/state.json`  
-- 直近 `pytest` の実行結果（キャッシュ/ログがあれば）
-- 直近 `codex review/tests` の要約（あれば）
-
-## 出力形式（markdown）
-
-```
 【現在の状態】
-- Phase: red|green|refactor
-- Current Task: ...
-- Next Tasks(Top5): ...
 
-【テスト結果】
-- pytest: 成功/失敗（要約）
-- カバレッジ（あれば）: ...
+- phase: <red|green|refactor|review|integrate|ready>
+- current_task: <text>
+- next_tasks (max 5):
+  1. ...
+  2. ...
+- last_diff（要約）:
 
-【最近ログ】
-- [時刻] init: ...
-- [時刻] next: phase=green → success
-- ...
+  ```diff
+  <直近の変更点の抜粋>
+  ```
 
-【推奨次アクション】
-- flow-next
-- flow-run --max-cycles 3
-```
+- last_test_result: <passed|failed|unknown>
+- warnings:
+  - ...
 
-## 出力形式（--json）
+【補足】
 
-```json
-{
-  "phase": "green",
-  "current_task": "...",
-  "next_tasks": ["...", "..."],
-  "pytest": {"success": true, "failed_tests": []},
-  "coverage": {"overall": 0.86},
-  "recent_logs": [{"ts":"...","kind":"...","msg":"..."}]
-}
-```
+- spec_digest（`docs/spec.md` の要点/ハッシュ）: ...
+- plan 概要（milestones / acceptance_criteria / risks）: ...
+- research_digest（要点）: ...
+- updated_at: <ISO8601>
 
-## 注意
+## 動作ルール
 
-- state が無い場合は flow-init を促す  
-- 情報が欠けている要素（カバレッジ等）は省略/空で返す  
+- state が無い場合は **flow-init** を案内
+- 情報が欠けている要素（例: カバレッジ等）は省略/空で返す
+- 表示は**人間が一目で把握**できるよう短く要点のみ
+
+### 注意事項
+
+- 出力は秘匿情報を含めないこと
+- `phase` と `current_task` は最優先で表示すること
