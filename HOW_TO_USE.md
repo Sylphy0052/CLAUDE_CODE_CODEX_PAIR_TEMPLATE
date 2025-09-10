@@ -1,76 +1,74 @@
-# HOW_TO_USE（シンプル版）
+# HOW_TO_USE
 
-## 基本フロー
+このマニュアルは **日常の使い方** に特化しています。
+README.md が「全体設計の説明」なのに対し、こちらは「具体的な操作手順」を示します。
 
-### 1. 初期化
+---
+
+## 初回セットアップ
 
 ```bash
-flow-init
+claude flow-init
 ```
 
-- CLAUDE.md を読み込み、目的・制約を要約  
-- planner がタスクを分解  
-- scaffold が最小雛形を提案  
-- 最初の Red テストを提示  
+- `docs/spec.md` を読み込み、Spec Writer と Planner が調査・計画を行う
+- 最初の Red テストを生成し、`.claude/flow/state.json` を作成
 
 ---
 
-### 2. 開発サイクル
+## 小刻みに進める（flow-next）
 
 ```bash
-flow-next
+claude flow-next --cycles 1
 ```
 
-- 状態ファイル（.claude/flow/state.json）を確認  
-- 自動で現在のフェーズを判定  
-  - Red → 新しい失敗テストを追加  
-  - Green → 最小実装を追加してテスト成功を確認  
-  - Refactor → 外部挙動を変えずに整理  
+- Red → Green → Refactor の **1サイクルだけ** 実行
+- `--cycles N` で Nサイクルまとめて進めることも可能
+- 内部で `tests-step` / `codex-review` を実行し、Codex と Reviewer の結果を突き合わせる
+- 公開API/設定変更があれば `doc-sync`（提案）を起動して更新案を提示
 
 ---
 
-### 3. 複数サイクル自動実行
+## まとめて進める（flow-run）
 
 ```bash
-flow-run
+claude flow-run --milestone current
 ```
 
-- デフォルトで 3 サイクル実行  
-- テスト失敗や差分超過を検知すると停止  
+- **1マイルストーン完了まで** flow-next を繰り返す
+- 最後に `codex-run` / `codex-bridge` を使い総合確認し、必要に応じて `doc-sync --apply` で文書整合を確保
+- Yes/No 確認の上で承認・統合
 
----
-
-### 4. 状態確認
+例: フェーズ単位で進める場合
 
 ```bash
-flow-status
+claude flow-run --phase green
 ```
-
-- 現在のフェーズ、タスク、次の候補、テスト結果を要約  
 
 ---
 
-### 5. 状態リセット
+## 状態確認
 
 ```bash
-flow-reset
+claude flow-status
 ```
 
-- state.json を初期化  
-- `--hard` を付けると Git 差分も破棄  
+- 現在の phase / task / next_tasks を確認
 
 ---
 
-## オプション引数（必要な時だけ）
+## リセット
 
-- `flow-next --phase green` → 明示的にフェーズ指定  
-- `flow-run --max-cycles 10` → 実行サイクル数を指定  
-- `flow-reset --hard` → 状態と差分を完全破棄  
+```bash
+claude flow-reset --hard
+```
+
+- state とワークツリーを安全に復元
 
 ---
 
-## ポイント
+## 注意点
 
-- **普段は引数不要**  
-- `flow-init` → `flow-next` → `flow-status` のループで進める  
-- 複数まとめて進めたいときだけ `flow-run` を使う  
+- **flow-next は開発者が小刻みに進める用**
+- **flow-run はまとまった単位で総合確認する用**
+- Codex 連携はデフォルト有効（抑止する場合は `--no-codex`）
