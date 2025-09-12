@@ -1,73 +1,133 @@
 ---
-allowed-tools: Bash(git:*), Bash(codex:*), Read(*.md), Fetch(*)
-description: "初期化。docs/spec.md を読み、調査→計画→最初の Red テスト準備→state 作成までを自動実行します。Codex 連携はデフォルト。"
-updated: "2025-09-10"
+allowed-tools: Bash(git:*), Read(*.md), Fetch(*)
+description: "初期化。docs/spec.md を読み、調査→計画→タスク分割→state / tasks / config ファイル作成までを自動実行します。"
+updated: "2025-09-12"
 ---
 
-あなたは **初期化コマンド (flow-init)** です。引数が無ければ自動で情報源を探索し、TDD を開始できる最小セットを整えます。必要に応じて `--goal` などで上書きできます。
+# flow-init
+
+あなたは **初期化コマンド (flow-init)** です。プロジェクトを TDD サイクルで回すための**下準備**を行います。
+ここでは Spec Writer と Planner のサブエージェントを使い、調査と計画、およびタスク分割・状態ファイル・設定ファイルの生成のみを行います。
+
+---
 
 ## デフォルト挙動（引数なし）
 
-1. **情報源の発見**
-   - `docs/spec.md`（必須・Claudeの基準）
-   - `README.md` / `docs/` / `SPEC.md` / `PRD.md`
-   - 直近の Issue/ToDo（`TODO.md` / `CHANGELOG.md` など）
+1. **情報源の探索（Spec Writer サブエージェント）**
+   - 優先: `docs/spec.md`
+   - 他: `README.md` / `docs/*.md` / `SPEC.md` / `PRD.md` / `TODO.md` / `CHANGELOG.md` / コードコメント
+   - 見つからなければ最小 SPEC の雛形を提案
+   - 出力は **Markdown 要約** と **JSON フォーマット（research_digest）** の両方を生成
 
-2. **調査 (Research) — サブエージェント使用**
-   - `.claude/agents/spec-writer.md` を用い、仕様・既存コード・外部APIの現状を把握
-   - **出力**: `research_digest`（要点 / 未解決のオープンクエスチョン）
+2. **調査結果の取り込み**
+   - Spec Writer の出力から `research_digest` を抽出
+   - `goal`, `non_goals`, `constraints`, `open_questions`, `source_files` を state.json に格納
 
-3. **計画 (Plan) — サブエージェント使用**
-   - `.claude/agents/planner.md` を用い、**≤2h タスク**に分解し受入基準を整備（Given/When/Then）
-   - **出力**: `plan.milestones[]`, `acceptance_criteria[]`, `risks[]`
+3. **計画（Planner サブエージェント）**
+   - `research_digest` をもとにタスクを分割
+   - 各タスクは **2時間以内** に完了可能な粒度
+   - 必ずテストで検証可能な形にする
+   - 各タスクには以下を含めること:
+     - `id`: `T{連番}-{slug}` 形式（slug は小文字・英数字・ハイフン）
+     - `priority`: 1–10（必須）
+     - `depends_on`: 他タスクID（循環依存は禁止）
+     - `milestone`: 紐付けマイルストーン
+     - `acceptance_criteria`: Given/When/Then
+     - `context`: spec_refs / related_files
+   - Planner の出力は **Markdown 要約** と **JSON タスクリスト** の両方を生成
 
-4. **目的・制約の要約**
-   - 目的 (Goal) / 非目的 (Non-Goals) / 制約（技術・運用・性能・セキュリティ）を抽出
+4. **ファイル生成**
+   - `.claude/flow/state.json`（現在の状態）
+   - `.claude/flow/tasks.json`（タスク管理）
+   - `.claude/flow/config.json`（存在しなければ生成）
+   - `docs/tasks.md`（上部: 一覧表、下部: 各タスク詳細セクション）
+   - 既存があれば `.bak-<timestamp>` に退避
 
-5. **最初の Red テスト準備**
-   - `tests/` が無ければ作成し、**失敗が保証される**最小テストの叩き台を提示
-   - テスト実行は **プロジェクト既定のテストランナー** を前提（言語非依存）
-
-6. **状態ファイルの生成**
-   - `.claude/flow/state.json` を新規作成（既存があれば `.bak-YYYYMMDD-HHMMSS` を保存）
-   - **初期値例**:
-
-     ```json
-     {
-       "phase": "red",
-       "goal": "<短い目的>",
-       "research_digest": "<要点サマリ>",
-       "plan": {
-         "milestones": ["..."],
-         "acceptance_criteria": ["Given/When/Then ..."],
-         "risks": ["..."]
-       },
-       "current_task": "<First Task>",
-       "next_tasks": ["..."]
-     }
-     ```
-
-7. **Codex 連携（デフォルト）**
-   - `codex review .` の要点を収集
-   - `codex run tests` を呼び、テスト系の初期動作を確認（存在する場合）
+---
 
 ## 任意引数
 
 - `--goal "<text>"` : 目的テキストを直接指定（spec より優先）
 - `--spec "<file>"` : 仕様ファイルを明示指定（既定: `docs/spec.md`）
-- `--reset` : 既存 state を無視して再生成
-- `--no-codex` : Codex 呼び出しを抑止（**デフォルトは Codex 連携**）
+- `--reset` : 既存 state を無視して再生成（.bak に退避）
 
-## 出力形式（人間が読みやすい要約）
+---
 
-【Research 要点】 …
-【Plan 要点】 …
-【受入基準 (G/W/T)】 …
-【最初の Red テスト】 ファイル名 / 目的 / 実行結果（失敗の抜粋）
-【state.json 要約】 phase / current_task / next_tasks / warnings
+## 出力形式（人間向け要約）
 
-### 注意事項
+- 【Research 要点（Markdown）】 …
+- 【Research Digest（JSON）】 …
+- 【Plan 要点（Markdown）】 …
+- 【タスクリスト（JSON）】 …
+- 【state 要約】 phase=planned / current_task / next_tasks / warnings
 
-- **サブエージェント（spec-writer / planner）** を必ず使用し、調査→計画を経てから Red を作成すること
-- 初期化直後は常に **Red フェーズ** から開始
-- state は人間が追える粒度で整形し、秘匿情報は含めないこと
+---
+
+## 生成ファイル例
+
+### `.claude/flow/state.json`
+
+```json
+{
+  "schema_version": "1.0",
+  "phase": "planned",
+  "goal": "<短い目的>",
+  "research_digest": {
+    "goal": "...",
+    "non_goals": ["..."],
+    "constraints": ["..."],
+    "open_questions": ["..."],
+    "source_files": ["docs/spec.md","README.md"]
+  },
+  "plan": {
+    "milestones": ["..."],
+    "acceptance_criteria": ["Given/When/Then ..."],
+    "risks": ["..."]
+  },
+  "current_task": "T001-login-feature",
+  "next_tasks": ["T002-session-store", "T003-rate-limit"]
+}
+```
+
+### `.claude/flow/tasks.json`
+
+```json
+{
+  "id": "T001-login-feature",
+  "title": "Login feature",
+  "status": "planned",
+  "priority": 8,
+  "depends_on": [],
+  "milestone": "M1 Authentication",
+  "acceptance_criteria": [
+    {"given": "ユーザーが有効な資格情報を入力", "when": "ログインを実行", "then": "セッションが開始される"}
+  ],
+  "context": {
+    "spec_refs": ["docs/spec.md#auth"],
+    "related_files": ["src/auth/*.ts"]
+  },
+  "history": [],
+  "created_at": "<ISO8601>",
+  "updated_at": "<ISO8601>"
+}
+```
+
+### `.claude/flow/config.json`
+
+```json
+{
+  "schema_version": "1.0",
+  "default_milestones": ["M1 Authentication"],
+  "id_format": "T{num:03}-{slug}",
+  "task_slug_rules": "lowercase, hyphen-separated, alphanumeric only",
+  "backup_dir": ".claude/backups"
+}
+```
+
+---
+
+## 注意事項
+
+- flow-init は **Spec Writer と Planner の2つのサブエージェント**を必ず使用する
+- 初期化直後のフェーズは常に **planned**
+- 実装・レビュー・テストはここでは行わない（flow-next / flow-run に委譲）

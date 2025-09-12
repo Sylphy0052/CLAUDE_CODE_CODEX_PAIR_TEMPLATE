@@ -1,101 +1,117 @@
 ---
 allowed-tools: Bash(git:*), Bash(codex:*), Read(*.md), Fetch(*)
-description: "次タスクを Red→Green→Refactor の順で進めるサイクルを最大N回まとめて実行。差分は unified diff、ロールバック案付き。Codex 連携はデフォルト。"
-updated: "2025-09-10"
+description: "タスク単位で Red→Green→Refactor の TDD サイクルを進めます。planned からの初回 Red、Codex 実装/テスト作成、相互レビュー、state/tasks の自動更新に対応。"
+updated: "2025-09-12"
 ---
 
-あなたは **フローハンドラ (flow-next)** です。`state.json` をもとに **TDDサイクル（Red→Green→Refactor）を N回まで** 実行します（既定: 1回）。
-各サイクルは **サブエージェント**（Spec Writer / Planner / Implementer / Reviewer）を用いて進めます。
+# flow-next
 
-## 前提チェック（Research/Plan with Sub-Agents）
+`.claude/flow/state.json` と `.claude/flow/tasks.json` を基に、**タスク単位**で **TDD サイクル（Red→Green→Refactor）** を 1 回または複数回（`--cycles`）実行します。
+初回で `phase=planned` の場合は **最初の Red** を開始します。
 
-- `state.research_digest` が未設定 → **Spec Writer サブエージェント** (`.claude/agents/spec-writer.md`) で補完。無ければ flow-init を案内
-- `state.plan.milestones` が空 → **Planner サブエージェント** (`.claude/agents/planner.md`) で最初のマイルストーン生成。承認後に続行
-- `acceptance_criteria` 未設定 → **Planner** により G/W/T を最小生成しテストへ反映
+- 司令塔: **Claude Code**（オーケストレーション／テスト実行・判定／state & tasks 更新）
+- 実装/テスト作成: **Codex**
+- レビュー: **Claude Code & Codex の相互レビュー**（不一致時は Claude が最終判断）
+- フェーズ管理: `planned → red → green → refactor`（自動判定。明示指定で上書き可）
 
-## 自動判定ルール（簡潔版）
+---
 
-- **Red → Green** : 直近の新規テストが失敗した直後
-- **Green → Refactor** : 新規テストを含む全テストが成功した直後
-- **Refactor 継続/終了** :
-  - 整理が必要 かつ 全テスト成功 → Refactor 継続
-  - 整理が不要 or 整理後も全テスト成功 → Red に戻る（新規テスト作成）
+## 事前条件
 
-> `--phase` 指定があればそのフェーズを優先します。
+- `.claude/flow/state.json` が存在し、`current_task` が設定済み（無ければ `flow-init`）
+- `.claude/flow/tasks.json` に `current_task` のレコードがあり、`status ∈ {planned, implementing, reviewing, testing}`
 
-## フェーズ別の処理（サブエージェント明記）
-
-- **Red — Implementer サブエージェント使用**
-  - 失敗する最小テストを追加
-  - プロジェクト既定の **テストランナー** を実行し失敗を確認
-
-- **Green — Implementer サブエージェント使用**
-  - テストを通す最短実装を提示（**unified diff**）
-  - **テストランナー** 成功を確認
-
-- **Refactor — Reviewer サブエージェント使用**
-  - 外部挙動を変えずに整理（命名・重複除去・分割）
-  - 変更は **unified diff**、**テストランナー** 成功を維持
-
-## Codex 連携（デフォルト）
-
-- `codex review .` の所見を要約し、**Reviewer サブエージェント**の所見と比較
-- Green/Refactor 後は `codex run tests` を再実行
-
-## 内部実行（Orchestration）
-
-- 各サイクルで **`tests-step`** を内部実行（Red→Green→Refactor を一括）
-  - 例: `flow-next --no-codex` の場合は `tests-step --no-codex` に委譲
-- サイクル末尾で **`codex-review`** を内部実行し、Reviewer と突き合わせ
-- Codex が許可されている場合、必要に応じ **`codex-run --only tests`** を内部実行して整合確認
-- 依存/環境の不整合を検知した場合のみ **`codex-sync`** を内部実行（自動修復は行わない）
-- 仕様/公開API/設定の変更が検出された場合は **`doc-sync`** を内部実行（既定は提案モード、`--apply` は明示時のみ）
-- ドキュメント乖離の検出には **Docs Guardian サブエージェント** を使用
+---
 
 ## 引数
 
-- `--cycles <N>` : 実行サイクル数（既定 1）
-- `--phase <red|green|refactor>` : 自動判定の上書き
-- `--max-diff <lines>` : 差分行数上限（既定 200）
-- `--no-codex` : Codex 呼び出し抑止（**既定は Codex 連携**）
+- `--cycles <N>` : サイクル最大回数（既定: 1）
+- `--phase <red|green|refactor>` : 単一フェーズ実行（自動判定を上書き）
+- `--max-diff <lines>` : 差分表示/適用の上限（既定: 200）
+- `--no-codex` : Codex 依存処理を抑止（Claude 単独範囲のみ）
+- `--dry-run` : ファイルを変更せず提案のみ
+- `--wip-allow` : `.claude/flow/config.json` の `wip_limit` を無視
+- `--format <md|json>` : **出力形式**を選択（既定: `md`） ← 追加
+- `--compact` : **簡易表示**（主要項目のみ。補足や詳細を省略） ← 追加
+- `--verbose` : **詳細表示**（要約に加え、カバレッジ/リンタ/型の詳細や追加ログも出力） ← 追加
 
-## 出力形式
+---
 
-```
+## 実行フロー（1 サイクルの概要）
+
+1. **前提チェック**：DAG/スキーマ/ブロッカー確認
+2. **Red**（`planned|red`）：最小 Red テストを追加 → 失敗確認
+3. **Green**：最短実装（unified diff）→ テスト成功確認
+4. **Refactor**：外部挙動不変の整理 → 成功維持確認
+5. **相互レビュー**：Claude & Codex の所見統合（不一致は Claude が最終判断）
+6. **更新**：`state/tasks/docs` を自動更新、アンカー（`docs/tasks.md#t###-slug`）を反映
+
+---
+
+## 出力（デフォルト = Markdown）
+
 【状態要約】
-- Phase: ...
-- Current Task: ...
-- Executed Cycles: N/指定値
-- Next Tasks(Top5): ...
-- 直近ログ: ...
 
-【提案差分（サイクルごとに要約）】
+- Phase: `<planned|red|green|refactor>`
+- Current Task: `<T###-slug>`
+- Executed Cycles: `k / 指定値`
+- Next Tasks (Top5): `[T002](docs/tasks.md#t002-...)`, `[T003](docs/tasks.md#t003-...)`
+- 直近ログ: `...`
+
+【提案差分（必要時のみ）】
+
 ```diff
 <unified diff>
 ```
 
-【影響範囲】
+【テスト結果（要約）】
 
-- API/モジュール/性能/セキュリティ: ...
+- ランナー: `passed/failed`（**要約のみ**）
+- カバレッジ / リンタ / 型チェック: **要約のみ**
+  - 詳細は **`flow-run`** または **`--verbose`** を使用してください。
 
-【ロールバック案】
+【レビュー統合（要約）】
 
-- git apply -R ... / git checkout -- <files> ...
+- Claude 所見: `...` / Codex 所見: `...` / 統合見解: `OK` or `要修正`
 
-【テスト結果】
+> 差分が無いときは **diff ブロックを表示しません**。冗長な解説は省き、詳細運用は `flow-run` を参照。
 
-- テストランナー: 成功/失敗（要約）
-- Codex: review/tests の要約と差異
+---
 
-【次アクション】
+## 出力（JSON 例 / `--format json`）
 
-- 推奨 phase: ...
-- 推奨コマンド: flow-next / flow-run
-
+```json
+{
+  "phase": "green",
+  "current_task": "T001-login-feature",
+  "executed_cycles": 1,
+  "next_tasks": [
+    {"id": "T002-session-store", "anchor": "docs/tasks.md#t002-session-store"}
+  ],
+  "last_diff": "PATCH_OR_NULL",
+  "test": {
+    "result": "passed",
+    "summary": {"passed": 12, "failed": 0, "skipped": 1}
+  },
+  "review": {
+    "claude": "OK",
+    "codex": "OK",
+    "final": "OK"
+  },
+  "updated_at": "2025-09-12T10:00:00+09:00"
+}
 ```
 
-## 停止条件・安全策
-- 差分が `--max-diff` 超過 → **中断** し「タスク分割」提案
-- Red で失敗しない / Green で成功しない → **中断**（原因要約）
-- 破壊的変更の兆候 → **中断** と明示同意要求
-- **N回実行中でも** 上記に該当したら直ちに停止
+`--compact` の場合、`next_tasks` は最大3件、`test.summary` などの詳細を省略します。
+`--verbose` の場合、`test.coverage_detail` / `lint.issues[]` / `typecheck.issues[]` 等を追加出力します。
+
+---
+
+## 安全策・停止条件
+
+- `--max-diff` 超過 → 停止し「タスク分割」提案
+- Red で失敗しない / Green で成功しない → 停止し原因を要約
+- 破壊的変更の兆候 → 停止し明示同意を要求
+- 依存 DAG 不整合（循環/孤立）→ 停止し `warnings` に詳細を出力
+
+---
