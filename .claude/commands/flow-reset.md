@@ -1,101 +1,55 @@
 ---
-allowed-tools: Bash(git:*), Read(*.md), Fetch(*)
-description: "作業ツリーと state を安全に巻き戻します。未コミット変更は退避し、必要なら直前のバックアップへ復元します。--format/--compact/--dry-run に対応。"
-updated: "2025-09-12"
+description: |
+  [プロジェクトリセット] 現在のタスクリストと状態ファイルを、安全なバックアップを作成した上で削除します。
+notes: |
+  バージョン: 1.0
+  状態管理: @state-manager
 ---
+# Flow: プロジェクトリセットコマンド (flow-reset)
 
-# flow-reset
+このコマンドは、現在の`flow`の進捗（`.flow/tasks.md`と`.flow/state.json`）を完全にリセットします。
+誤操作を防ぐため、リセット実行前には必ずバックアップが作成され、ユーザーに最終確認を求めます。
 
-`.claude/flow/state.json` と作業ツリーを **安全に巻き戻す** コマンドです。
-> **Codex 連携は行いません（安全性優先）**
+## ⚠️ 警告 (Warning)
 
----
+このコマンドは、現在の進捗を削除する**破壊的な操作**です。操作は慎重に行ってください。
 
-## 手順
+## 使用例
 
-1. **事前確認**
-   - 現在のブランチ・未コミットファイル・直近 state を確認
-   - 大きな差分がある場合は停止して要約提示
-
-2. **退避（バックアップ）**
-   - 未コミット変更を `./.claude/backups/<timestamp>/worktree.patch` に保存
-   - `.claude/flow/state.json` を `state.json.bak-<timestamp>` に保存
-
-3. **復元**
-   - 既定は直前の state バックアップを復元
-   - `--from <path>` 指定があればその state を復元
-   - ワークツリーは `git restore --staged --worktree .` 等でクリーンに
-
-4. **検証**
-   - `flow-status` を実行し `phase / current_task / next_tasks` を表示
-   - 差分が残っていれば再度退避→復元を試行
+    /flow-reset
 
 ---
 
-## 引数
+## 実行フロー
 
-- `--hard` : 退避後に**強制的に**作業ツリーをクリーン化（ローカル変更を除外）
-- `--from <path>` : 指定したバックアップ (`state.json.bak-*`) から復元
-- `--keep-worktree` : ワークツリーを維持し **state のみ**復元
-- `--confirm` : 確認プロンプトを表示（既定）
-- `--yes` : **全承認を自動化**（確認を出さず実行）
-- `--no-input` : **非対話モード**（CI用。全て自動実行）
-- `--format <md|json>` : 出力形式（既定: `md`） ← 追加
-- `--compact` : 簡易表示（主要項目のみ） ← 追加
-- `--dry-run` : **ドライラン**。バックアップ候補・復元対象・差分要約を表示し、変更は行わない ← 追加
+### ステップ1: 事前チェック
 
----
+まず、リセット対象の状態ファイルが存在するかを確認します。
 
-## 出力形式（Markdown, 既定）
+- **もし、状態ファイルが存在しない場合:**
+    処理を中断し、「情報: `flow`プロジェクトはまだ初期化されていません。リセットの必要はありません。」と報告してください。
 
-【実行サマリ】
+### ステップ2: 安全なリセットの実行 (by @state-manager)
 
-- action: `backup-and-restore | restore-only | noop`
-- state_restore_from: `<path or latest>`
-- worktree_backup: `<path or none>`
-- warnings: [...]
+`@state-manager`エージェントを呼び出し、安全なリセットプロセスを実行させます。
+このプロセスには、バックアップの作成とユーザーへの最終確認が含まれます。
 
-【flow-status（復元後）】
+@state-manager
 
-- phase / current_task / next_tasks
-- last_diff（要約）
-- updated_at
+- **Operation:** reset
+- **Details:** 安全なバックアップを作成した後、ユーザーの承認を得てから状態をリセットしてください。
 
----
+`@state-manager`は内部で以下の処理を行います。
 
-## 出力形式（JSON, `--format json`）
+1. 現在の状態ファイルのバックアップを`.flow/backup/`ディレクトリに作成します。
+2. ユーザーに「バックアップを作成しました。本当にリセットしますか？ [Y/N]」と確認します。
+3. ユーザーが承認した場合のみ、`.flow/`ディレクトリ内の`tasks.md`と`state.json`を削除します。
 
-```json
-{
-  "action": "backup-and-restore",
-  "state_restore_from": "state.json.bak-20250912-1000",
-  "worktree_backup": ".claude/backups/20250912-1000/worktree.patch",
-  "warnings": [],
-  "restored_status": {
-    "phase": "planned",
-    "current_task": "T001-login-feature",
-    "next_tasks": ["T002-session-store", "T003-rate-limit"],
-    "last_diff": null,
-    "updated_at": "2025-09-12T10:05:00+09:00"
-  }
-}
-```
+### ステップ3: 最終報告
 
-`--compact` の場合は `action` / `state_restore_from` / `phase` / `current_task` のみを返します。
-`--dry-run` の場合は `action="dry-run"` とし、候補情報のみを出力します。
+`@state-manager`からの処理結果を受け取り、ユーザーに報告します。
 
----
-
-## 動作ルール
-
-- **未コミット差分が巨大** → 停止し「まずコミット or 手動退避」を促す
-- **バックアップ作成に失敗** → 停止し理由を表示
-- **`--from` が無効** → 停止し利用可能な一覧を提示
-- `--yes` または `--no-input` → 確認プロンプトをスキップ
-
----
-
-## 注意事項
-
-- リセットは**破壊的操作**になり得ます。バックアップが取れない場合は中止してください。
-- 復元後は必ず `flow-status` で状態を確認してください。
+- **もし、ユーザーがリセットを承認した場合:**
+    「プロジェクトのリセットが完了しました。再度開始するには、`/flow-init`を実行してください。以前の状態はバックアップから復元可能です。」と報告します。
+- **もし、ユーザーがリセットをキャンセルした場合:**
+    「操作はキャンセルされました。プロジェクトの状態は変更されていません。」と報告します。

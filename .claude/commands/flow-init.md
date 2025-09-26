@@ -1,133 +1,83 @@
 ---
-allowed-tools: Bash(git:*), Read(*.md), Fetch(*)
-description: "初期化。docs/spec.md を読み、調査→計画→タスク分割→state / tasks / config ファイル作成までを自動実行します。"
-updated: "2025-09-12"
+description: |
+  [プロジェクト初期化] 仕様書から開発タスクを抽出し、タスクリストと状態ファイルを生成します。
+argument_hint: "[仕様書のファイルパス] [--reset (任意)]"
+notes: |
+  バージョン: 1.0
+  計画担当: @planner
+  状態管理: @state-manager
 ---
+# Flow: プロジェクト初期化コマンド (flow-init)
 
-# flow-init
+このコマンドは、指定された仕様書（例: `docs/spec.md`）を読み込み、AIが実行可能なタスクリスト（`.flow/tasks.md`）と、進捗を管理する状態ファイル（`.flow/state.json`）を自動生成します。
 
-あなたは **初期化コマンド (flow-init)** です。プロジェクトを TDD サイクルで回すための**下準備**を行います。
-ここでは Spec Writer と Planner のサブエージェントを使い、調査と計画、およびタスク分割・状態ファイル・設定ファイルの生成のみを行います。
+## 使用例
 
----
+```bash
+# docs/spec.md を基にプロジェクトを初期化
+/flow-init docs/spec.md
 
-## デフォルト挙動（引数なし）
-
-1. **情報源の探索（Spec Writer サブエージェント）**
-   - 優先: `docs/spec.md`
-   - 他: `README.md` / `docs/*.md` / `SPEC.md` / `PRD.md` / `TODO.md` / `CHANGELOG.md` / コードコメント
-   - 見つからなければ最小 SPEC の雛形を提案
-   - 出力は **Markdown 要約** と **JSON フォーマット（research_digest）** の両方を生成
-
-2. **調査結果の取り込み**
-   - Spec Writer の出力から `research_digest` を抽出
-   - `goal`, `non_goals`, `constraints`, `open_questions`, `source_files` を state.json に格納
-
-3. **計画（Planner サブエージェント）**
-   - `research_digest` をもとにタスクを分割
-   - 各タスクは **2時間以内** に完了可能な粒度
-   - 必ずテストで検証可能な形にする
-   - 各タスクには以下を含めること:
-     - `id`: `T{連番}-{slug}` 形式（slug は小文字・英数字・ハイフン）
-     - `priority`: 1–10（必須）
-     - `depends_on`: 他タスクID（循環依存は禁止）
-     - `milestone`: 紐付けマイルストーン
-     - `acceptance_criteria`: Given/When/Then
-     - `context`: spec_refs / related_files
-   - Planner の出力は **Markdown 要約** と **JSON タスクリスト** の両方を生成
-
-4. **ファイル生成**
-   - `.claude/flow/state.json`（現在の状態）
-   - `.claude/flow/tasks.json`（タスク管理）
-   - `.claude/flow/config.json`（存在しなければ生成）
-   - `docs/tasks.md`（上部: 一覧表、下部: 各タスク詳細セクション）
-   - 既存があれば `.bak-<timestamp>` に退避
-
----
-
-## 任意引数
-
-- `--goal "<text>"` : 目的テキストを直接指定（spec より優先）
-- `--spec "<file>"` : 仕様ファイルを明示指定（既定: `docs/spec.md`）
-- `--reset` : 既存 state を無視して再生成（.bak に退避）
-
----
-
-## 出力形式（人間向け要約）
-
-- 【Research 要点（Markdown）】 …
-- 【Research Digest（JSON）】 …
-- 【Plan 要点（Markdown）】 …
-- 【タスクリスト（JSON）】 …
-- 【state 要約】 phase=planned / current_task / next_tasks / warnings
-
----
-
-## 生成ファイル例
-
-### `.claude/flow/state.json`
-
-```json
-{
-  "schema_version": "1.0",
-  "phase": "planned",
-  "goal": "<短い目的>",
-  "research_digest": {
-    "goal": "...",
-    "non_goals": ["..."],
-    "constraints": ["..."],
-    "open_questions": ["..."],
-    "source_files": ["docs/spec.md","README.md"]
-  },
-  "plan": {
-    "milestones": ["..."],
-    "acceptance_criteria": ["Given/When/Then ..."],
-    "risks": ["..."]
-  },
-  "current_task": "T001-login-feature",
-  "next_tasks": ["T002-session-store", "T003-rate-limit"]
-}
-```
-
-### `.claude/flow/tasks.json`
-
-```json
-{
-  "id": "T001-login-feature",
-  "title": "Login feature",
-  "status": "planned",
-  "priority": 8,
-  "depends_on": [],
-  "milestone": "M1 Authentication",
-  "acceptance_criteria": [
-    {"given": "ユーザーが有効な資格情報を入力", "when": "ログインを実行", "then": "セッションが開始される"}
-  ],
-  "context": {
-    "spec_refs": ["docs/spec.md#auth"],
-    "related_files": ["src/auth/*.ts"]
-  },
-  "history": [],
-  "created_at": "<ISO8601>",
-  "updated_at": "<ISO8601>"
-}
-```
-
-### `.claude/flow/config.json`
-
-```json
-{
-  "schema_version": "1.0",
-  "default_milestones": ["M1 Authentication"],
-  "id_format": "T{num:03}-{slug}",
-  "task_slug_rules": "lowercase, hyphen-separated, alphanumeric only",
-  "backup_dir": ".claude/backups"
-}
+# 既存のタスクをリセットして、新しい仕様書で再初期化
+/flow-init docs/new_spec.md --reset
 ```
 
 ---
 
-## 注意事項
+## 実行フロー
 
-- flow-init は **Spec Writer と Planner の2つのサブエージェント**を必ず使用する
-- 初期化直後のフェーズは常に **planned**
-- 実装・レビュー・テストはここでは行わない（flow-next / flow-run に委譲）
+### ステップ1: 事前チェックとセットアップ
+
+まず、既存の状態ファイルがあるか確認します。
+
+- **もし `.flow` ディレクトリが既に存在する場合:**
+  - **そして `--reset` オプションが指定されていない場合:**
+        処理を**中断**し、「エラー: 既存のタスクリストが見つかりました。再初期化するには `--reset` オプションを付けてください。または `flow-reset` コマンドでリセットしてください。」と報告してください。
+  - **そして `--reset` オプションが指定されている場合:**
+        `@state-manager` を呼び出し、既存の状態を安全にリセット（バックアップ作成後に削除）してください。
+        `@state-manager`
+    - **Operation:** reset
+    - **Details:** 安全なバックアップを作成した後、状態をリセットしてください。
+
+- **もし `.flow` ディレクトリが存在しない場合:**
+    `.flow` ディレクトリを新規に作成してください。
+
+### ステップ2: 開発計画の策定 (by @planner)
+
+**進捗報告:**
+「ステップ2/3: 仕様書を分析し、開発計画を策定します...」
+
+`@planner` エージェントを呼び出し、指定された仕様書から開発計画を策定させます。
+生成された計画は、`.flow/tasks.md` というファイルに保存してください。
+
+@planner
+
+- **仕様書ファイル:** `$1`
+- **アウトプット:** `.flow/tasks.md`
+
+**成功時報告:**
+「開発計画の策定が完了し、`.flow/tasks.md` に保存しました。」
+
+### ステップ3: 状態ファイルの初期化 (by @state-manager)
+
+**進捗報告:**
+「ステップ3/3: プロジェクトの状態を初期化します...」
+
+`@state-manager` エージェントを呼び出し、状態ファイル `.flow/state.json` を初期状態で作成させます。初期フェーズは常に `red` です。
+
+@state-manager
+
+- **Operation:** initialize_state
+- **Initial State:** `{ "phase": "red" }`
+- **Output File:** `.flow/state.json`
+
+**成功時報告:**
+「状態ファイルの初期化が完了しました。」
+
+### ステップ4: 最終報告
+
+全ての初期化プロセスが完了したことを報告し、最後に `@state-manager` を呼び出して、生成されたばかりのプロジェクトの初期状態を表示してください。
+
+@state-manager
+
+- **Operation:** status
+- **Details:** 現在の状態を要約して報告してください。

@@ -1,102 +1,54 @@
 ---
-allowed-tools: Read(*.md)
-description: "現在の状態（phase/current_task/next_tasks/last_diff 等）を要約表示。出力オプション/依存DAG検証/アンカー連携に対応。state がなければ flow-init を促します。"
-updated: "2025-09-12"
+description: |
+  [進捗確認] 現在のタスクリストの進捗と、TDDサイクルのフェーズを表示します。
+notes: |
+  バージョン: 1.0
+  状態管理: @state-manager
 ---
+# Flow: 進捗確認コマンド (flow-status)
 
-# flow-status
+このコマンドは、現在のプロジェクトの進捗状況を要約して表示します。
+具体的には、`.flow/tasks.md`と`.flow/state.json`の内容を解析し、開発の「現在地」を明確にします。
 
-`.claude/flow/state.json` を読み取り、プロジェクトの現在地を**簡潔に**表示します。
-未初期化の場合は `flow-init` の実行を案内します。詳細運用は `flow-run` を参照してください。
+## 使用例
 
----
-
-## 使い方
-
-- `flow-status`
-- `flow-status --format json`
-- `flow-status --compact`
-
-### 出力オプション
-
-- `--format <md|json>` : 出力形式を選択（既定: `md`）
-- `--compact` : 主要項目のみ表示（補足・警告の詳細を省略）
-
----
-
-## 出力（Markdown, 既定）
-
-【現在の状態】
-
-- phase: `<planned|red|green|refactor|reviewing|testing|done>`
-- current_task: `<T###-slug or none>`
-- next_tasks (max 5):
-  1. `[T001](docs/tasks.md#t001-login-feature)` 例
-  2. ...
-- last_diff（要約/あればのみ）:
-
-  ```diff
-  <直近の変更点の抜粋>
-  ```
-
-- warnings:
-  - ...
-
-【補足】（必要に応じて）
-
-- research_digest（要点）: ...
-- plan 概要（milestones / acceptance_criteria / risks）: ...
-- config（id_format / default_milestones など）: ...
-- updated_at: `<ISO8601>`
-
-> 注: `phase=planned` のときは **`last_test_result` を表示しません（N/A）**。
-
----
-
-## 出力（JSON 例）
-
-```json
-{
-  "phase": "planned",
-  "current_task": "T001-login-feature",
-  "next_tasks": [
-    {"id": "T002-session-store", "anchor": "docs/tasks.md#t002-session-store"},
-    {"id": "T003-rate-limit", "anchor": "docs/tasks.md#t003-rate-limit"}
-  ],
-  "last_diff": null,
-  "warnings": [],
-  "supplement": {
-    "research_digest": "...",
-    "plan_summary": {"milestones": 3, "acceptance_criteria": 5, "risks": 2},
-    "config": {"id_format": "T{num:03}-{slug}"}
-  },
-  "updated_at": "2025-09-12T10:00:00+09:00"
-}
+```bash
+/flow-status
 ```
 
-`--compact` 時は `next_tasks` を最大3件、`supplement` を省略します。
-
 ---
 
-## 動作ルール
+## 実行フロー
 
-- **state.json が無い** → 「未初期化。`flow-init [--spec docs/spec.md]` を実行してください」と表示
-- **DAG検証**（`tasks.json` がある場合のみ）
-  - `depends_on` の **循環**・**孤立タスク** を検出し、`warnings` に要約（例: `cycle: T004→T005→T004` / `orphan: T010`）
-- **アンカー連携**
-  - `next_tasks` には `docs/tasks.md` の見出しアンカーを付与（例: `[T001](docs/tasks.md#t001-login-feature)`）
-- **差分表示**
-  - 直近の差分が **ある場合のみ** ```diff ブロックを表示（無ければ省略）
-- **テスト表示**
-  - `phase=planned` は `last_test_result` を **非表示**
-- 表示は**要点のみ**。詳細な工程や操作は **`flow-run` を参照**
+### ステップ1: 事前チェック
 
----
+まず、`.flow`ディレクトリと状態ファイル（`tasks.md`, `state.json`）が存在するかを確認します。
 
-## 参照ファイル
+- **もし、状態ファイルが存在しない場合:**
+    処理を中断し、「エラー: `flow`プロジェクトが初期化されていません。`/flow-init`コマンドでプロジェクトを開始してください。」と報告してください。
 
-- `.claude/flow/state.json`（必須）
-- `.claude/flow/tasks.json`（DAG検証/アンカー生成に使用）
-- `docs/tasks.md`（アンカーリンクの出力に使用）
+### ステップ2: 状態の要約表示 (by @state-manager)
 
----
+`@state-manager`エージェントを呼び出し、現在のプロジェクト状態の完全なレポートを生成させます。
+
+@state-manager
+
+- **Operation:** status
+- **Details:** 現在の状態を詳細に要約して報告してください。
+
+`@state-manager`は、以下の情報を含むレポートを生成します。
+
+- **進捗サマリー:** 全タスク数、完了タスク数、進捗率（%）
+- **現在のフェーズ:** `red`, `green`, `refactor` のいずれか
+- **現在のタスク:** 今まさに取り組んでいるタスク
+- **次のタスクリスト:** これから取り組む予定のタスク（最大5件）
+
+### ステップ3: 最終報告
+
+`@state-manager`からのレポートを受け取り、それをユーザーに表示します。
+最後に、次に行うべきアクションのヒントを提示します。
+
+- **もし、未完了のタスクが残っている場合:**
+    「次のステップに進むには、`/flow-next`を実行してください。」と案内します。
+- **もし、全てのタスクが完了している場合:**
+    「🎉 全てのタスクが完了しました！プロジェクトの完成です。」と報告します。

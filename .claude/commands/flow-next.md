@@ -1,117 +1,139 @@
 ---
-allowed-tools: Bash(git:*), Bash(codex:*), Read(*.md), Fetch(*)
-description: "タスク単位で Red→Green→Refactor の TDD サイクルを進めます。planned からの初回 Red、Codex 実装/テスト作成、相互レビュー、state/tasks の自動更新に対応。"
-updated: "2025-09-12"
+description: |
+  [TDDサイクル実行] 現在のタスクをRed→Green→Refactorのサイクルで1ステップ進めます。--codexオプションで実装AIを選択できます。
+argument_hint: "[--codex (任意)]"
+notes: |
+  バージョン: 1.0
+  状態管理: @state-manager
+  テスト担当: @test-writer
+  実装担当: @implementer (デフォルト), @codex-implementer (オプション)
+  レビュー担当: @code-reviewer (デフォルト), @codex-reviewer (オプション)
 ---
+# Flow: TDDサイクル実行コマンド (flow-next)
 
-# flow-next
+このコマンドは、現在のプロジェクトの状態（フェーズとタスク）に基づき、テスト駆動開発（TDD）のサイクルを正確に1ステップ進めます。
 
-`.claude/flow/state.json` と `.claude/flow/tasks.json` を基に、**タスク単位**で **TDD サイクル（Red→Green→Refactor）** を 1 回または複数回（`--cycles`）実行します。
-初回で `phase=planned` の場合は **最初の Red** を開始します。
+## 使用例
 
-- 司令塔: **Claude Code**（オーケストレーション／テスト実行・判定／state & tasks 更新）
-- 実装/テスト作成: **Codex**
-- レビュー: **Claude Code & Codex の相互レビュー**（不一致時は Claude が最終判断）
-- フェーズ管理: `planned → red → green → refactor`（自動判定。明示指定で上書き可）
+```bash
+# デフォルトのClaudeエージェントを使って、次のステップを実行
+/flow-next
 
----
-
-## 事前条件
-
-- `.claude/flow/state.json` が存在し、`current_task` が設定済み（無ければ `flow-init`）
-- `.claude/flow/tasks.json` に `current_task` のレコードがあり、`status ∈ {planned, implementing, reviewing, testing}`
-
----
-
-## 引数
-
-- `--cycles <N>` : サイクル最大回数（既定: 1）
-- `--phase <red|green|refactor>` : 単一フェーズ実行（自動判定を上書き）
-- `--max-diff <lines>` : 差分表示/適用の上限（既定: 200）
-- `--no-codex` : Codex 依存処理を抑止（Claude 単独範囲のみ）
-- `--dry-run` : ファイルを変更せず提案のみ
-- `--wip-allow` : `.claude/flow/config.json` の `wip_limit` を無視
-- `--format <md|json>` : **出力形式**を選択（既定: `md`） ← 追加
-- `--compact` : **簡易表示**（主要項目のみ。補足や詳細を省略） ← 追加
-- `--verbose` : **詳細表示**（要約に加え、カバレッジ/リンタ/型の詳細や追加ログも出力） ← 追加
-
----
-
-## 実行フロー（1 サイクルの概要）
-
-1. **前提チェック**：DAG/スキーマ/ブロッカー確認
-2. **Red**（`planned|red`）：最小 Red テストを追加 → 失敗確認
-3. **Green**：最短実装（unified diff）→ テスト成功確認
-4. **Refactor**：外部挙動不変の整理 → 成功維持確認
-5. **相互レビュー**：Claude & Codex の所見統合（不一致は Claude が最終判断）
-6. **更新**：`state/tasks/docs` を自動更新、アンカー（`docs/tasks.md#t###-slug`）を反映
-
----
-
-## 出力（デフォルト = Markdown）
-
-【状態要約】
-
-- Phase: `<planned|red|green|refactor>`
-- Current Task: `<T###-slug>`
-- Executed Cycles: `k / 指定値`
-- Next Tasks (Top5): `[T002](docs/tasks.md#t002-...)`, `[T003](docs/tasks.md#t003-...)`
-- 直近ログ: `...`
-
-【提案差分（必要時のみ）】
-
-```diff
-<unified diff>
+# Codexエージェントを使って、次のステップを実行
+/flow-next --codex
 ```
 
-【テスト結果（要約）】
+---
 
-- ランナー: `passed/failed`（**要約のみ**）
-- カバレッジ / リンタ / 型チェック: **要約のみ**
-  - 詳細は **`flow-run`** または **`--verbose`** を使用してください。
+## 実行フロー
 
-【レビュー統合（要約）】
+### ステップ1: 現在の状態を取得 (by @state-manager)
 
-- Claude 所見: `...` / Codex 所見: `...` / 統合見解: `OK` or `要修正`
+まず、`@state-manager`を呼び出して、現在の`phase`と`current_task`（最初の未完了タスク）を取得します。
 
-> 差分が無いときは **diff ブロックを表示しません**。冗長な解説は省き、詳細運用は `flow-run` を参照。
+@state-manager
+
+- **Operation:** get_current_state
+- **Details:** 現在のフェーズとカレントタスク、そしてそのタスクの受入基準を報告してください。
+
+もし未完了のタスクが存在しない場合は、処理を中断し、「全てのタスクが完了しています。」と報告してください。
+
+### ステップ2: フェーズに応じた処理を実行
+
+取得した現在の`phase`に応じて、以下のいずれかの処理ブロックを実行します。
 
 ---
 
-## 出力（JSON 例 / `--format json`）
+#### 🟩 もし、現在のフェーズが "red" なら... (失敗するテストを作成)
 
-```json
-{
-  "phase": "green",
-  "current_task": "T001-login-feature",
-  "executed_cycles": 1,
-  "next_tasks": [
-    {"id": "T002-session-store", "anchor": "docs/tasks.md#t002-session-store"}
-  ],
-  "last_diff": "PATCH_OR_NULL",
-  "test": {
-    "result": "passed",
-    "summary": {"passed": 12, "failed": 0, "skipped": 1}
-  },
-  "review": {
-    "claude": "OK",
-    "codex": "OK",
-    "final": "OK"
-  },
-  "updated_at": "2025-09-12T10:00:00+09:00"
-}
-```
+**目的:** これから実装する機能が、まだ存在しないことを証明する「失敗するテスト」を作成します。
+**担当エージェント:** `@test-writer`
 
-`--compact` の場合、`next_tasks` は最大3件、`test.summary` などの詳細を省略します。
-`--verbose` の場合、`test.coverage_detail` / `lint.issues[]` / `typecheck.issues[]` 等を追加出力します。
+**進捗報告:**
+「Phase: Red. 失敗するテストを作成します...」
+
+@test-writer を呼び出し、現在のタスクの受入基準を満たすテストコードを生成させます。
+`@test-writer`
+
+- **Phase:** red
+- **Current Task:** (ステップ1で取得したタスク名)
+- **Acceptance Criteria:** (ステップ1で取得した受入基準)
+
+テストが期待通りに**失敗**したら、**ステップ3**に進みます。
+もしテストが成功してしまった場合は、処理を中断し、「エラー: Redフェーズでテストが成功してしまいました。テストの設計を見直してください。」と報告してください。
 
 ---
 
-## 安全策・停止条件
+#### 🟩 もし、現在のフェーズが "green" なら... (テストをパスさせる実装)
 
-- `--max-diff` 超過 → 停止し「タスク分割」提案
-- Red で失敗しない / Green で成功しない → 停止し原因を要約
-- 破壊的変更の兆候 → 停止し明示同意を要求
-- 依存 DAG 不整合（循環/孤立）→ 停止し `warnings` に詳細を出力
+**目的:** 現在失敗しているテストを、最もシンプルな方法でパスさせます。
+**担当エージェント:** `--codex`オプションの有無で切り替えます。
+
+**進捗報告:**
+「Phase: Green. テストをパスさせるための最小限の実装を行います...」
+
+- **もし `--codex` オプションが引数に含まれている場合:**
+    `@codex-implementer` を呼び出します。
+- **そうでなければ（デフォルト）:**
+    `@implementer` を呼び出します。
+
+呼び出すエージェントに、失敗しているテストをパスさせるための実装を指示します。
+`@(選択されたimplementer)`
+
+- **Phase:** green
+- **Current Task:** (ステップ1で取得したタスク名)
+- **Failing Test:** (失敗しているテストの情報)
+
+実装後、テストが**成功**したら、**ステップ3**に進みます。
+もしテストがまだ失敗する場合は、処理を中断し、「エラー: Greenフェーズでテストをパスさせることができませんでした。実装を見直してください。」と報告してください。
 
 ---
+
+#### 🟩 もし、現在のフェーズが "refactor" なら... (コード品質の向上)
+
+**目的:** テストが成功している状態を維持しながら、コードの品質を向上させます。
+**担当エージェント:** `--codex`オプションの有無で切り替えます。
+
+**進捗報告:**
+「Phase: Refactor. コードの品質を向上させます...」
+
+- **もし `--codex` オプションが引数に含まれている場合:**
+    `@codex-reviewer` を呼び出します。
+- **そうでなければ（デフォルト）:**
+    `@code-reviewer` を呼び出します。
+
+呼び出すエージェントに、コードのリファクタリングを指示します。
+`@(選択されたreviewer)`
+
+- **Phase:** refactor
+- **Code to Refactor:** (リファクタリング対象のコード)
+- **Relevant Tests:** (関連するテストファイル)
+
+リファクタリング後もテストが**成功**し続けていることを確認したら、**ステップ3**に進みます。
+
+---
+
+### ステップ3: 状態を更新 (by @state-manager)
+
+実行したフェーズに応じて、`@state-manager`を呼び出してプロジェクトの状態を次のステップに進めます。
+
+- **"red"フェーズが完了した場合:**
+    `phase`を`green`に更新します。
+- **"green"フェーズが完了した場合:**
+    `phase`を`refactor`に更新します。
+- **"refactor"フェーズが完了した場合:**
+    現在のタスクを完了状態にし、`phase`を次のタスクのために`red`に戻します。
+
+`@state-manager`
+
+- **Operation:** (update_phase または complete_task)
+- **Details:** (具体的な更新内容)
+
+### ステップ4: 最終報告
+
+全ての処理が完了したことを報告し、最後に`@state-manager`を呼び出して、更新後のプロジェクトの状態を表示してください。
+
+@state-manager
+
+- **Operation:** status
+- **Details:** 現在の状態を要約して報告してください。
