@@ -1,71 +1,117 @@
 ---
-description: "[Flow初期化] .claude/.flow ディレクトリを作成し、state.json と tasks.md を初期化します。Git操作は一切行いません。"
-argument_hint: "[--reset (任意)]"
-notes: |
-  バージョン: 2.2（Git連携削除版）
-  依存: 現在の作業ディレクトリ
-  出力: 初期化レポート + state.json + tasks.md
+description: "[Flow初期化] 仕様書からTDDフローを初期化（タスク自動生成）"
+allowed-tools: Read, Write, Edit, Bash, Glob
+argument-hint: "<feature-name> [--reset]"
 ---
-# Flow: プロジェクト初期化コマンド (flow-init)
 
-`.claude/.flow/` ディレクトリを新規作成し、Flow管理用の初期ファイルを生成します。
-Git連携は削除され、**完全にローカルファイル操作のみ**で動作します。
+# Flow初期化
 
----
+仕様書（design.md）からタスクを自動生成し、TDDフローを初期化します。
+
+**必須**: feature-name引数（仕様書名）
 
 ## 実行フロー
 
-### ステップ1: 事前チェック
+**コマンド**: `/flow-init <feature-name>`
 
-- `.claude/.flow/` の存在確認:
-  - 存在しない場合 → 新規作成。
-  - 存在する場合:
-    - `--reset` 指定あり → 既存ファイルを `.bak` にバックアップ後、再生成。
-    - `--reset` 指定なし → 警告を表示して終了。
+### ステップ1: 仕様書の確認
 
----
+1. `.claude/specs/$1/spec.json`の存在確認
+2. `.claude/specs/$1/design.md`の存在確認
 
-### ステップ2: 初期ファイル生成
+**エラーハンドリング**:
 
-#### state.json
+- `spec.json`が存在しない → `/spec-init`の実行を案内
+- `design.md`が存在しない → `/spec-design`の実行を案内
 
+### ステップ2: タスクの自動生成
+
+設計書（`design.md`）から実装タスクを自動生成します。
+
+**タスク生成ルール**:
+
+- 自然言語で「何をするか」を記述（ファイル名やコード構造ではなく、機能と成果に焦点）
+- 各タスクは1〜3時間で完了可能
+- メジャータスク: 1, 2, 3, 4...（逐次的に番号付け）
+- サブタスク: 1.1, 1.2, 2.1, 2.2...（メジャータスクごとにリセット）
+- 最大2レベルの階層（1.1.1のような深い階層は不可）
+
+**タスクフォーマット**:
+
+```text
+# 実装タスクリスト: [feature-name]
+
+- [ ] 1. [メジャータスク1の説明]
+- [ ] 1.1 [サブタスク1.1の説明]
+  - 詳細1
+  - 詳細2
+  - _Requirements: 1.1, 1.2_
+
+- [ ] 1.2 [サブタスク1.2の説明]
+  - 詳細1
+  - _Requirements: 1.3_
+
+- [ ] 2. [メジャータスク2の説明]
+- [ ] 2.1 [サブタスク2.1の説明]
+  - 詳細1
+  - 詳細2
 ```
+
+**タスク統合と進行**:
+
+- 各タスクは前のタスクの出力に基づいて構築
+- 統合タスクで全体を接続
+- 孤立した機能を作らない
+- 段階的な複雑さ（タスク間の大きなジャンプを避ける）
+
+### ステップ3: state.jsonの初期化
+
+既存の`.claude/.flow/`が存在し、`--reset`オプションがない場合は警告を表示して終了します。
+
+`.claude/.flow/`ディレクトリを作成し、`state.json`を初期化：
+
+```jsonc
 {
   "phase": "red",
-  "current_task": "初期タスク",
+  "current_task": "[最初のタスク名]",
   "completed_tasks": [],
-  "pending_tasks": [],
-  "history": []
+  "pending_tasks": ["[残りのタスクリスト]"],
+  "history": [],
+  "spec": {
+    "feature_name": "[feature-name]",
+    "spec_path": ".claude/specs/[feature-name]/",
+    "has_design": true,
+    "has_requirements": [requirementsの有無]
+  }
 }
 ```
 
-- `phase`: `"red"` で固定。
-- `current_task`: `"初期タスク"`。
-- 今後の `/flow-next`, `/flow-status` で参照・更新されます。
+**フィールド説明**:
 
-#### tasks.md
+- `spec`: 仕様書情報
+  - `feature_name`: 機能名
+  - `spec_path`: 仕様書のパス
+  - `has_design`: 設計書の有無（trueで固定）
+  - `has_requirements`: `requirements.md`の存在に応じて設定
 
-```
+### ステップ4: tasks.mdの保存
 
-# Tasks
+`.claude/.flow/tasks.md`にタスクリストを保存します。
 
-- [ ] 初期タスク: コア機能のテストケースを作成する
-```
+### 出力
 
-- `tasks.md` はタスクリスト管理用。
-- Flow実行時に `[ ]` が `[x]` に変化します。
+```text
+✅ TDDフローを初期化
 
----
+📦 仕様書: [feature-name]
+   - spec.json ✅
+   - design.md ✅
+   - requirements.md [✅/❌]
 
-### ステップ3: 結果出力
+📋 生成されたタスク: [N]個
+🎯 最初のタスク: 1. [タスク名]
 
-初期化が成功すると次の出力を返します。
-
-```
-✅ Flow initialized successfully.
-Phase: red
-Current Task: 初期タスク
-Next Step: /flow-next で最初のテストを生成してください。
+次のステップ: /flow-run または /flow-next
 ```
 
 ---
@@ -74,7 +120,7 @@ Next Step: /flow-next で最初のテストを生成してください。
 
 | オプション | 内容 |
 |-------------|------|
-| `--reset` | `.claude/.flow` をバックアップして再初期化 |
+| `--reset` | `.claude/.flow`をバックアップして再初期化 |
 
 ---
 
@@ -82,30 +128,20 @@ Next Step: /flow-next で最初のテストを生成してください。
 
 | 状況 | 対応 |
 |------|------|
-| `.claude/.flow/` 既存・--resetなし | 初期化中止、警告出力 |
+| feature-name引数なし | エラー: 必須引数（feature-name）が指定されていません |
+| `spec.json`が存在しない | `/spec-init`の実行を案内 |
+| `design.md`が存在しない | `/spec-design`の実行を案内 |
+| `.claude/.flow/`既存・`--reset`なし | 初期化中止、警告出力 |
 | ファイル書込不可 | エラー終了 |
-| JSON破損・不整合 | `/flow-reset` の実行を案内 |
-
----
-
-## 実装メモ
-
-- 元の `@state-manager`・`@planner` 呼び出しは削除済み。
-- Git連携 (`git add/commit`) は完全に除外。
-- 全出力は標準出力ベースで行われ、外部コマンドに依存しません。
-- `flow-init` の結果は `.claude/.flow/state.json` および `tasks.md` に反映され、他の Flow 系コマンドの前提になります。
 
 ---
 
 ## 使用例
 
-```
-/flow-init
-
-# 初回セットアップ
-
-/flow-init --reset
+```bash
+# 仕様書からTDDフローを初期化
+/flow-init user-auth
 
 # 再構築（既存データをバックアップ）
-
+/flow-init user-auth --reset
 ```

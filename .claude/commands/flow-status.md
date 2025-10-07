@@ -24,7 +24,23 @@ TDDサイクル中のフェーズ（red / green / refactor）や、タスクの�
   - `completed_tasks`
   - `pending_tasks`
   - `history`
+  - `spec` (SDDモードの場合)
 - `.claude/.flow/tasks.md` もあれば同時に読み込み、最新状態を同期。
+
+### ステップ1.5: 仕様情報の確認（SDDモード時のみ）
+
+`state.json`に`spec`フィールドが存在する場合、仕様書情報を取得・確認：
+
+- `spec.feature_name`: 機能名
+- `spec.spec_path`: 仕様書パス（通常は`.claude/specs/[feature-name]/`）
+- `spec.has_design`: 設計書の有無
+- `spec.has_requirements`: 要件定義の有無
+
+仕様書ファイルの存在確認：
+
+- `.claude/specs/[feature-name]/spec.json`
+- `.claude/specs/[feature-name]/design.md`（has_design=trueの場合）
+- `.claude/specs/[feature-name]/requirements.md`（has_requirements=trueの場合）
 
 ### ステップ2: 進捗集計
 
@@ -42,9 +58,39 @@ TDDサイクル中のフェーズ（red / green / refactor）や、タスクの�
 
 ## 出力フォーマット
 
-以下のテンプレート形式で出力されます。
+### パターンA: SDDモード（仕様書連携あり）
 
+```text
+📊 Flow Status
+─────────────────────────────
+📦 Spec: user-authentication
+   Path: .claude/specs/user-authentication/
+   - spec.json ✅
+   - design.md ✅
+   - requirements.md ✅
+
+Phase          : red
+Current Task   : ログイン処理のテストケースを作成
+Progress       : 3 / 7 (42.8%)
+Next Action    : 新しいテストを作成してください
+
+✅ Completed Tasks:
+
+- ユーザー登録フォームのテスト作成
+- バリデーションロジックの実装
+- 登録テスト通過確認
+
+🕓 Pending Tasks:
+
+- [ ] ログイン処理のテストケースを作成
+- [ ] セッション維持のテスト
+─────────────────────────────
+Last Updated: 2025-10-03 15:12:44
 ```
+
+### パターンB: TDDモード（仕様書なし）
+
+```text
 📊 Flow Status
 ─────────────────────────────
 Phase          : red
@@ -86,23 +132,27 @@ Last Updated: 2025-10-03 15:12:44
 | `state.json` 不存在 | `/flow-init` の実行を促すメッセージを表示 |
 | JSON破損 | `.bak` に退避して終了 |
 | tasks.md 不存在 | 進捗率を算出せず、状態情報のみ表示 |
+| 仕様書ファイル不存在（SDDモード時） | 警告を表示するが処理は継続 |
 
 ---
 
 ## 実装メモ
 
-- 元の実装では `@state-manager` サブエージェントが状態読込と集計を行っていたが、本版では直接JSONを解析。  
-- 出力はターミナル互換のテキスト整形で表示（表罫線と絵文字を用いた視認性向上）。  
+- 元の実装では `@state-manager` サブエージェントが状態読込と集計を行っていたが、本版では直接JSONを解析。
+- 出力はターミナル互換のテキスト整形で表示（表罫線と絵文字を用いた視認性向上）。
 - Gitや外部ツールとの連携は削除。完全ローカル動作。
+- SDDモード時は、`state.json`の`spec`フィールドから仕様書情報を取得し、仕様書ファイルの存在確認を行う。
+- 仕様書情報は表示されるが、存在確認で問題があっても処理は継続する（読み取り専用のため）。
 
 ---
 
 ## 使用例
 
-```
+```bash
 /flow-status
 
 # 詳細表示（デフォルト）
+# SDDモードの場合は仕様書情報も表示
 
 /flow-status --summary
 
@@ -111,5 +161,4 @@ Last Updated: 2025-10-03 15:12:44
 /flow-status --all
 
 # 完了履歴をすべて表示
-
 ```

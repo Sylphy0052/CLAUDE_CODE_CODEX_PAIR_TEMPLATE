@@ -8,8 +8,10 @@ notes: |
 ---
 # Flow: TDDサイクル実行コマンド (flow-next)
 
-`.claude/.flow/state.json` を読み、現在の `phase`（red / green / refactor）に応じた処理を**1回**だけ実行します。  
+`.claude/.flow/state.json` を読み、現在の `phase`（red / green / refactor）に応じた処理を**1回**だけ実行します。
 `--codex` オプションがある場合、**Bash で codex CLI を呼び出し**、生成結果（diff またはコード本文）を**実ファイルへ反映**します。
+
+**前提**: `/flow-init <feature-name>`で仕様書からTDDフローが初期化済みであること。
 
 ---
 
